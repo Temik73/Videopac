@@ -1,6 +1,6 @@
 // Offline support: serve the emulator from cache when there is no network,
 // and refresh the cache from the network whenever it is reachable.
-const CACHE = 'videopac-v1';
+const CACHE = 'videopac-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {

@@ -188,44 +188,120 @@ $('btnEject').onclick = ejectCart;
 window.addEventListener('dragover', e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'; });
 window.addEventListener('drop', e => e.preventDefault());
 
-/* ---------------- audio ---------------- */
-let actx = null, muted = false;
+/* ---------------- audio ----------------
+   iPhone/iPad notes:
+   - The audio context may only start from a tap, and iOS only honours touchend/click, so every
+     gesture retries until the context reports 'running' (it can also drop to 'interrupted' after
+     a call, Siri or switching apps).
+   - The ring/silent switch mutes Web Audio unless the page plays as media: Safari's Audio Session
+     API is used where present, otherwise a silent looping <audio> element does the same job.
+   - Samples go to an AudioWorklet; ScriptProcessor is only a fallback (unreliable in Safari). */
+let actx = null, muted = false, workletPort = null, spNode = null, outReady = false, silentEl = null;
 const RING = 16384, ring = new Float32Array(RING);
 let rHead = 0, rTail = 0, lastOut = 0, hpX = 0, hpY = 0, lp = 0;
-function unlockAudio() {
-  if (!actx) {
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      actx = new AC();
-      emu.setSampleRate(actx.sampleRate);
-      const node = actx.createScriptProcessor(1024, 0, 1);
-      node.onaudioprocess = ev => {
-        const out = ev.outputBuffer.getChannelData(0);
-        for (let i = 0; i < out.length; i++) {
-          if (rTail !== rHead) { lastOut = ring[rTail]; rTail = (rTail + 1) % RING; }
-          else lastOut *= 0.98;
-          out[i] = lastOut;
-        }
-      };
-      node.connect(actx.destination);
-    } catch (e) { actx = null; }
+const WORKLET_SRC = `
+class VPOut extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.buf = new Float32Array(32768); this.h = 0; this.t = 0; this.last = 0;
+    this.port.onmessage = e => {
+      const d = e.data, b = this.buf, n = b.length; let h = this.h;
+      for (let i = 0; i < d.length; i++) { b[h] = d[i]; h = (h + 1) % n; }
+      this.h = h;
+      if ((h - this.t + n) % n > sampleRate * 0.15) this.t = (h - Math.floor(sampleRate * 0.05) + n) % n;
+    };
   }
-  if (actx && actx.state === 'suspended') actx.resume().catch(() => {});
-  if (actx) $('soundNote').hidden = true;
+  process(inputs, outputs) {
+    const out = outputs[0], o = out[0], b = this.buf, n = b.length;
+    for (let i = 0; i < o.length; i++) {
+      if (this.t !== this.h) { this.last = b[this.t]; this.t = (this.t + 1) % n; } else this.last *= 0.98;
+      o[i] = this.last;
+    }
+    for (let c = 1; c < out.length; c++) out[c].set(o);
+    return true;
+  }
+}
+registerProcessor('vp-out', VPOut);`;
+
+function silentWavUrl() {
+  const n = 4410, b = new ArrayBuffer(44 + n * 2), v = new DataView(b), w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+}
+function playbackMode() {
+  if (navigator.audioSession) {
+    try { if (navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; return; } catch (e) {}
+  }
+  const iOS = /iP(hone|ad|od)/.test(navigator.platform) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (!iOS) return;
+  try {
+    if (!silentEl) { silentEl = document.createElement('audio'); silentEl.setAttribute('playsinline', ''); silentEl.setAttribute('x-webkit-airplay', 'deny'); silentEl.loop = true; silentEl.src = silentWavUrl(); }
+    if (silentEl.paused) silentEl.play().catch(() => {});
+  } catch (e) {}
+}
+function buildOutput() {
+  if (actx.audioWorklet && window.AudioWorkletNode) {
+    const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
+    actx.audioWorklet.addModule(url).then(() => {
+      const node = new AudioWorkletNode(actx, 'vp-out', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
+      node.connect(actx.destination);
+      workletPort = node.port; outReady = true; updateSoundNote();
+    }).catch(() => scriptOutput());
+  } else scriptOutput();
+}
+function scriptOutput() {
+  spNode = actx.createScriptProcessor(2048, 1, 1);      // kept referenced; Safari drops unreferenced nodes
+  spNode.onaudioprocess = ev => {
+    const out = ev.outputBuffer.getChannelData(0);
+    for (let i = 0; i < out.length; i++) {
+      if (rTail !== rHead) { lastOut = ring[rTail]; rTail = (rTail + 1) % RING; } else lastOut *= 0.98;
+      out[i] = lastOut;
+    }
+  };
+  spNode.connect(actx.destination);
+  outReady = true; updateSoundNote();
+}
+function updateSoundNote() {
+  const on = !!(actx && actx.state === 'running' && outReady);
+  $('soundNote').hidden = on;
+  $('soundNote').textContent = actx ? 'Tap to turn on sound' : 'Tap, click or press a key to turn on sound';
+}
+function unlockAudio() {
+  playbackMode();
+  if (!actx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try { actx = new AC({ latencyHint: 'interactive' }); } catch (e) { try { actx = new AC(); } catch (e2) { actx = null; return; } }
+    emu.setSampleRate(actx.sampleRate);
+    actx.onstatechange = updateSoundNote;
+    buildOutput();
+  }
+  if (actx.state !== 'running') {
+    actx.resume().then(updateSoundNote, () => {});
+    try {                                                 // a one-sample buffer, played inside the tap, unlocks older iOS
+      const s = actx.createBufferSource(); s.buffer = actx.createBuffer(1, 1, actx.sampleRate); s.connect(actx.destination); s.start(0);
+    } catch (e) {}
+  }
+  updateSoundNote();
 }
 function pushAudio() {
-  if (!actx || actx.state !== 'running') return;
+  if (!actx || actx.state !== 'running' || !outReady) return;
   const n = emu.aLen, buf = emu.aBuf, g = muted || paused ? 0 : (S.vol / 100) * 0.35;
-  let fill = (rHead - rTail + RING) % RING;
-  if (fill > actx.sampleRate * 0.15) { rTail = (rHead - Math.floor(actx.sampleRate * 0.05) + RING) % RING; }
+  const chunk = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const x = buf[i];
     hpY = x - hpX + 0.995 * hpY; hpX = x;          // remove DC
     lp += (hpY - lp) * 0.45;                        // soften the square wave edges
-    ring[rHead] = lp * g; rHead = (rHead + 1) % RING;
+    chunk[i] = lp * g;
   }
+  if (workletPort) { workletPort.postMessage(chunk, [chunk.buffer]); return; }
+  if ((rHead - rTail + RING) % RING > actx.sampleRate * 0.15) rTail = (rHead - Math.floor(actx.sampleRate * 0.05) + RING) % RING;
+  for (let i = 0; i < n; i++) { ring[rHead] = chunk[i]; rHead = (rHead + 1) % RING; }
 }
 ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'].forEach(t => window.addEventListener(t, unlockAudio, { capture: true }));
+document.addEventListener('visibilitychange', () => { if (!document.hidden && actx && actx.state !== 'running') actx.resume().then(updateSoundNote, () => {}); updateSoundNote(); });
+window.vpAudioInfo = () => ({ state: actx ? actx.state : 'none', output: workletPort ? 'worklet' : spNode ? 'script' : 'none', rate: actx ? actx.sampleRate : 0 });
 
 /* ---------------- input ---------------- */
 const kbJoy = [0, 0];
