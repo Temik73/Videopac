@@ -30,6 +30,7 @@ html, body { background: var(--case); color: var(--ink); }
 body { font-family: var(--f-body); font-size: 14px; line-height: 1.5; }
 button, label.btn, select, .touchpad, .membrane, .tv { touch-action: manipulation; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 .app { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 40px; display: grid; gap: 18px; }
+.app { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 
 /* header */
 .top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 10px 20px; }
@@ -163,28 +164,33 @@ details.fold[open] > summary::after { transform: rotate(-135deg); margin-top: 4p
 details.fold { border: 0; padding: 0; }
 .fold-body { display: grid; gap: 12px; margin-top: 12px; min-width: 0; }
 
-/* play mode: the console fills the viewport (real full screen where the browser allows it) */
+/* play mode: the console fills the viewport. The script (layoutGame) measures the screen and
+   picks the arrangement with the biggest picture: controls beside the screen on long phones in
+   landscape, or below it in portrait and on squarer screens such as the iPhone Duo's two displays.
+   It sets --tvw (picture width), --pad (joystick size), --fire and --roww (controls row width). */
 .game-exit { display: none; }
 body.gaming { overflow: hidden; }
 .console.game { position: fixed; inset: 0; z-index: 20; border: 0; border-radius: 0; background: #000;
-  padding: calc(8px + env(safe-area-inset-top, 0px)) calc(8px + env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) calc(8px + env(safe-area-inset-left, 0px));
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; overflow: hidden; }
+  padding: calc(8px + env(safe-area-inset-top, 0px) + var(--topres)) calc(8px + env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) calc(8px + env(safe-area-inset-left, 0px));
+  display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; gap: 12px; overflow: hidden;
+  --tvw: 100%; --pad: 148px; --fire: 104px; --roww: 100%; --topres: 0px; }
 .console.game .transport { display: none; }
-.console.game .game-exit { display: inline-flex; position: absolute; z-index: 3; top: calc(8px + env(safe-area-inset-top, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); background: rgba(28,30,36,.85); }
-.console.game .tv { padding: 0; background: transparent; box-shadow: none; width: min(100%, calc((100vh - 250px) * 4 / 3)); width: min(100%, calc((100dvh - 250px) * 4 / 3)); }
-.console.game.notouch .tv { width: min(100%, calc((100vh - 16px) * 4 / 3)); width: min(100%, calc((100dvh - 16px) * 4 / 3)); }
+.console.game .game-exit { display: inline-grid; place-items: center; position: absolute; z-index: 3; width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 50%; font-size: 16px;
+  top: calc(8px + env(safe-area-inset-top, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); background: rgba(28,30,36,.72); }
+.console.game .tv { padding: 0; background: transparent; box-shadow: none; width: var(--tvw); justify-self: center; }
 .console.game .tv::after { inset: 0; }
 .console.game .tv canvas { border-radius: 0; }
-.console.game .touchpad { width: 100%; max-width: 520px; }
-@media (orientation: landscape) {
-  .console.game:not(.notouch) { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: 1fr 1fr; column-gap: 12px; row-gap: 14px; }
-  .console.game:not(.notouch) .touchpad { display: contents; }
-  .console.game:not(.notouch) .dpad { grid-column: 1; grid-row: 1 / span 2; align-self: center; justify-self: center; }
-  .console.game:not(.notouch) .fire { grid-column: 3; grid-row: 1; align-self: end; justify-self: center; }
-  .console.game:not(.notouch) .touch-mid { grid-column: 3; grid-row: 2; align-self: start; justify-self: center; grid-auto-flow: column; }
-  .console.game:not(.notouch) .tv { grid-column: 2; grid-row: 1 / span 2; align-self: center;
-    width: min(calc((100vh - 16px) * 4 / 3), calc(100vw - 360px)); width: min(calc((100dvh - 16px) * 4 / 3), calc(100vw - 360px)); }
-}
+.console.game .dpad { width: var(--pad); height: var(--pad); }
+.console.game .fire { width: var(--fire); height: var(--fire); }
+.console.game.lay-below .touchpad { width: var(--roww); justify-self: center; padding: 0; }
+.console.game.lay-below.keys-row .touch-mid { grid-auto-flow: column; }
+.console.game.lay-side { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: 1fr 1fr; align-content: stretch; column-gap: 12px; row-gap: 12px; }
+.console.game.lay-side .touchpad { display: contents; }
+.console.game.lay-side .dpad { grid-column: 1; grid-row: 1 / span 2; align-self: center; justify-self: center; }
+.console.game.lay-side .fire { grid-column: 3; grid-row: 1; align-self: end; justify-self: center; }
+.console.game.lay-side .touch-mid { grid-column: 3; grid-row: 2; align-self: start; justify-self: center; }
+.console.game.lay-side .tv { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* phones */
 .key .ms { display: none; }
@@ -238,7 +244,7 @@ body.gaming { overflow: hidden; }
 
   <main class="deck">
     <section class="console" id="console" aria-label="Console">
-      <button class="btn game-exit" id="btnExitGame" type="button">✕ Exit play mode</button>
+      <button class="btn game-exit" id="btnExitGame" type="button" title="Exit play mode"><span aria-hidden="true">✕</span><span class="sr-only">Exit play mode</span></button>
       <div class="tv scan" id="tv">
         <canvas id="screen" width="320" height="240" aria-label="Game screen"></canvas>
         <div class="screen-note" id="soundNote">Tap, click or press a key to turn on sound</div>

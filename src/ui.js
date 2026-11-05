@@ -511,11 +511,65 @@ $('btnMute').onclick = () => { muted = !muted; $('btnMute').setAttribute('aria-p
    otherwise (iPhone) a fixed full-window layout. Phones enter it automatically in landscape. */
 const consoleEl = $('console');
 let gameMode = null;   // null, 'user' or 'auto'
+/* Sizes the play-mode layout for the current screen. Two arrangements are compared and the one
+   with the wider picture wins: 'side' (joystick left, fire and keys right) suits long phones held
+   sideways; 'below' (controls under the picture) suits portrait and near-square screens. */
+function layoutGame() {
+  const c = consoleEl;
+  c.classList.remove('lay-side', 'lay-below', 'keys-row');
+  if (!gameMode) return;
+  c.style.setProperty('--topres', '0px');
+  const cs = getComputedStyle(c);
+  const W = c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const fullH = c.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  let r = planGame(W, fullH);
+  // The round exit button sits in the top-left corner. If the picture leaves no margin beside it
+  // and no room above it, reserve a strip at the top so the button never covers the game.
+  const content = r.tvw * 0.75 + (r.lay === 'lay-below' ? r.rowH + 12 : 0);
+  if ((W - r.tvw) / 2 < 52 && (fullH - content) / 2 < 48) {
+    r = planGame(W, fullH - 48);
+    c.style.setProperty('--topres', '48px');
+  }
+  const { lay, pad, fire, keysRow } = r; let tvw = r.tvw;
+  tvw = Math.max(160, Math.floor(tvw));
+  c.style.setProperty('--tvw', tvw + 'px');
+  c.style.setProperty('--pad', pad + 'px');
+  c.style.setProperty('--fire', fire + 'px');
+  c.style.setProperty('--roww', Math.min(W, Math.max(tvw, 2 * pad + 120)) + 'px');
+  if (lay) c.classList.add(lay);
+  c.classList.toggle('keys-row', keysRow);
+}
+function planGame(W, H) {
+  const gap = 12, keysColH = 3 * 40 + 2 * 8, keysRowW = 44 + 44 + 76 + 2 * 8;   // the 1 / 2 / ENTER buttons
+  let tvw, lay = null, pad = 148, fire = 104, keysRow = false, rowH = 0;
+  if ($('touchpad').hidden) tvw = Math.min(W, H * 4 / 3);
+  else {
+    // Try joystick sizes from a comfortable minimum up to 150 px; score = picture width plus a
+    // bonus for a bigger joystick, so the picture wins unless the difference is small.
+    const lo = Math.min(W, H) < 400 ? 96 : 110, hi = Math.max(lo, Math.min(150, Math.round(Math.min(W, H) * 0.3)));
+    let best = null;
+    for (let p = lo; p <= hi; p += 2) {
+      const f = Math.round(p * 0.72);
+      const side = Math.min(H * 4 / 3, W - 2 * (p + 12) - 2 * gap);
+      const row = W >= p + f + keysRowW + 3 * gap;               // keys fit side by side under the picture
+      const below = Math.min(W, (H - Math.max(p, row ? 44 : keysColH) - gap) * 4 / 3);
+      for (const [l, v, kr] of [['lay-side', side, false], ['lay-below', below, row]]) {
+        const score = v + 0.8 * p;
+        if (!best || score > best.score) best = { score, l, v, p, f, kr, rh: Math.max(p, kr ? 44 : keysColH) };
+      }
+    }
+    lay = best.l; tvw = best.v; pad = best.p; fire = best.f; keysRow = best.kr; rowH = best.rh;
+  }
+  return { tvw, lay, pad, fire, keysRow, rowH };
+}
+let layoutQueued = false;
+function queueLayout() { if (layoutQueued) return; layoutQueued = true; requestAnimationFrame(() => { layoutQueued = false; layoutGame(); }); }
 function setGameClasses() {
   consoleEl.classList.toggle('game', !!gameMode);
   consoleEl.classList.toggle('notouch', $('touchpad').hidden);
   document.body.classList.toggle('gaming', !!gameMode);
   $('fullLabel').textContent = gameMode ? 'Exit play mode' : (isTouch() ? 'Play mode' : 'Full screen');
+  layoutGame();
 }
 const isTouch = () => !!(window.matchMedia && (matchMedia('(pointer: coarse)').matches || matchMedia('(any-pointer: coarse)').matches)) || (navigator.maxTouchPoints > 0 && !(window.matchMedia && matchMedia('(hover: hover)').matches));
 function enterGame(how) {
@@ -538,12 +592,13 @@ $('btnExitGame').onclick = exitGame;
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && gameMode) exitGame(); });
 const phoneLandscape = window.matchMedia ? matchMedia('(orientation: landscape)') : null;
 function onOrientation() {
-  const land = window.innerWidth > window.innerHeight && window.innerHeight <= 520 && isTouch();
+  const land = window.innerWidth > window.innerHeight && window.innerHeight <= 700 && isTouch();
   if (land && !gameMode) enterGame('auto');
   else if (!land && gameMode === 'auto') exitGame();
 }
 if (phoneLandscape) (phoneLandscape.addEventListener ? phoneLandscape.addEventListener('change', onOrientation) : phoneLandscape.addListener(onOrientation));
-window.addEventListener('resize', onOrientation);
+window.addEventListener('resize', () => { onOrientation(); queueLayout(); });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', queueLayout);
 window.addEventListener('orientationchange', () => setTimeout(onOrientation, 200));
 let memState = null;
 const stateKey = () => 'vp.state.' + hex(emu.biosCrc) + '.' + hex(emu.cartCrc);
