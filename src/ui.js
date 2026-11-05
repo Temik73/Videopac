@@ -310,7 +310,8 @@ const minHold = new Map();      // vp key -> release-not-before timestamp
 function keyDown(k, src) { if (!heldKeys.has(k)) heldKeys.set(k, new Set()); heldKeys.get(k).add(src); minHold.set(k, performance.now() + 90); keyVisual(k); }
 function keyUp(k, src) { const s = heldKeys.get(k); if (s) { s.delete(src); if (!s.size) heldKeys.delete(k); } keyVisual(k); }
 
-const editable = el => el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
+// Form controls that use the arrow keys themselves keep them; checkboxes do not, so the game keeps responding after ticking one.
+const editable = el => el && ((el.tagName === 'INPUT' && el.type !== 'checkbox') || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
 window.addEventListener('keydown', e => {
   if (editable(e.target) || e.metaKey || e.ctrlKey && e.code !== 'ControlRight') return;
   let used = false;
@@ -491,8 +492,26 @@ bindSelect('optPlus', 'plus', () => { applyPlus(); emu.reset(); });
 bindSelect('optTouch', 'touch', () => { applyTouch(); updatePadUi(); });
 bindCheck('optScan', 'scan', () => $('tv').classList.toggle('scan', S.scan));
 bindCheck('optSmooth', 'smooth', () => $('tv').classList.toggle('smooth', S.smooth));
-bindCheck('optBoth', 'both', updatePadUi);
-bindCheck('optSwap', 'swap', updatePadUi);
+bindCheck('optBoth', 'both', () => { updatePadUi(); renderPort(); });
+bindCheck('optSwap', 'swap', () => { updatePadUi(); renderPort(); });
+/* joystick port switch (toolbar and play mode): '1', '2' or 'both' */
+const portMode = () => S.both ? 'both' : (S.swap ? '2' : '1');
+function renderPort() {
+  const m = portMode();
+  $('btnPort1').setAttribute('aria-pressed', m !== '2');
+  $('btnPort2').setAttribute('aria-pressed', m !== '1');
+  $('btnGamePort').textContent = m === 'both' ? 'Joy 1+2' : 'Joy ' + m;
+}
+function setPort(p) {
+  S.both = p === 'both'; S.swap = p === '2'; saveSettings();
+  $('optBoth').checked = S.both; $('optSwap').checked = S.swap;
+  renderPort(); updatePadUi();
+  toast(p === 'both' ? 'Your controls drive both joysticks' : 'Your controls drive joystick ' + p);
+}
+$('btnPort1').onclick = () => setPort('1');
+$('btnPort2').onclick = () => setPort('2');
+$('btnGamePort').onclick = () => setPort(portMode() === '1' ? '2' : '1');
+renderPort();
 bindCheck('optSpaceFire', 'spaceFire', updatePadUi);
 $('optVol').value = S.vol; $('optVol').oninput = e => { S.vol = +e.target.value; saveSettings(); };
 $('tv').classList.toggle('scan', S.scan); $('tv').classList.toggle('smooth', S.smooth);
@@ -523,10 +542,10 @@ function layoutGame() {
   const W = c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   const fullH = c.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
   let r = planGame(W, fullH);
-  // The round exit button sits in the top-left corner. If the picture leaves no margin beside it
-  // and no room above it, reserve a strip at the top so the button never covers the game.
+  // The exit button (top left) and joystick switch (top right) sit in the corners. If the picture
+  // leaves no margin beside them and no room above it, reserve a strip at the top so they never cover the game.
   const content = r.tvw * 0.75 + (r.lay === 'lay-below' ? r.rowH + 12 : 0);
-  if ((W - r.tvw) / 2 < 52 && (fullH - content) / 2 < 48) {
+  if ((W - r.tvw) / 2 < 104 && (fullH - content) / 2 < 48) {
     r = planGame(W, fullH - 48);
     c.style.setProperty('--topres', '48px');
   }

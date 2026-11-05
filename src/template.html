@@ -72,6 +72,13 @@ button, label.btn, select, .touchpad, .membrane, .tv { touch-action: manipulatio
 .btn:disabled { opacity: .45; cursor: default; }
 .btn svg { width: 15px; height: 15px; flex: none; }
 .spacer { flex: 1; }
+/* joystick port switch: which port your controls drive (both lit = both ports) */
+.seg { display: inline-flex; align-items: stretch; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--shell-2); }
+.seg-lbl { display: flex; align-items: center; padding: 0 10px; font-size: 13px; color: var(--ink-dim); border-right: 1px solid var(--line); }
+.seg-b { min-width: 40px; padding: 0 12px; border: 0; background: transparent; color: var(--ink); font: 600 14px var(--f-display); cursor: pointer; }
+.seg-b + .seg-b { border-left: 1px solid var(--line); }
+.seg-b[aria-pressed="true"] { background: var(--amber); color: var(--amber-ink); }
+.seg-b:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
 
 /* touch controls */
 .touchpad { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 6px 4px 2px; user-select: none; -webkit-user-select: none; touch-action: none; }
@@ -153,7 +160,7 @@ summary { cursor: pointer; font-size: 13px; color: var(--ink); }
 .help p { margin: 0; font-size: 13px; color: var(--ink-dim); max-width: 65ch; }
 
 .toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--shell-2); color: var(--ink); border: 1px solid var(--line);
-  border-radius: 10px; padding: 10px 16px; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.45); max-width: calc(100vw - 32px); z-index: 10; }
+  border-radius: 10px; padding: 10px 16px; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.45); max-width: calc(100vw - 32px); z-index: 30; }
 .toast.err { border-color: var(--danger); color: var(--danger); }
 
 /* folding panels: open on desktop, folded on phones */
@@ -175,6 +182,9 @@ body.gaming { overflow: hidden; }
   display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; gap: 12px; overflow: hidden;
   --tvw: 100%; --pad: 148px; --fire: 104px; --roww: 100%; --topres: 0px; }
 .console.game .transport { display: none; }
+.game-port { display: none; }
+.console.game .game-port { display: inline-flex; align-items: center; position: absolute; z-index: 3; height: 40px; min-height: 0; padding: 0 14px; border-radius: 20px; font-weight: 600;
+  top: calc(8px + env(safe-area-inset-top, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); background: rgba(28,30,36,.72); }
 .console.game .game-exit { display: inline-grid; place-items: center; position: absolute; z-index: 3; width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 50%; font-size: 16px;
   top: calc(8px + env(safe-area-inset-top, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); background: rgba(28,30,36,.72); }
 .console.game .tv { padding: 0; background: transparent; box-shadow: none; width: var(--tvw); justify-self: center; }
@@ -205,6 +215,9 @@ body.gaming { overflow: hidden; }
   .console:not(.game) .tv::after { inset: 4px; }
   .transport { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   .transport .spacer { display: none; }
+  .transport .seg { grid-column: 1 / -1; order: 1; min-height: 44px; }
+  .transport .seg-lbl { flex: 1; }
+  .transport .seg-b { min-width: 64px; }
   .console:not(.game) .touchpad { gap: 8px; padding: 2px 0 0; }
   .console:not(.game) .dpad { width: 132px; height: 132px; }
   .console:not(.game) .fire { width: 92px; height: 92px; }
@@ -245,6 +258,7 @@ body.gaming { overflow: hidden; }
   <main class="deck">
     <section class="console" id="console" aria-label="Console">
       <button class="btn game-exit" id="btnExitGame" type="button" title="Exit play mode"><span aria-hidden="true">✕</span><span class="sr-only">Exit play mode</span></button>
+      <button class="btn game-port" id="btnGamePort" type="button" title="Tap to switch joystick">Joy 1+2</button>
       <div class="tv scan" id="tv">
         <canvas id="screen" width="320" height="240" aria-label="Game screen"></canvas>
         <div class="screen-note" id="soundNote">Tap, click or press a key to turn on sound</div>
@@ -258,6 +272,11 @@ body.gaming { overflow: hidden; }
         <button class="btn" id="btnSave" type="button">Save state</button>
         <button class="btn" id="btnLoad" type="button">Load state</button>
         <span class="spacer"></span>
+        <div class="seg" role="group" aria-label="Joystick port your controls drive">
+          <span class="seg-lbl">Joystick</span>
+          <button class="seg-b" id="btnPort1" type="button" aria-pressed="true" title="Your controls drive joystick 1">1</button>
+          <button class="seg-b" id="btnPort2" type="button" aria-pressed="true" title="Your controls drive joystick 2">2</button>
+        </div>
         <button class="btn" id="btnMute" type="button" aria-pressed="false">Sound on</button>
         <button class="btn" id="btnFull" type="button">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></svg><span id="fullLabel">Full screen</span></button>
@@ -359,6 +378,7 @@ body.gaming { overflow: hidden; }
         <li>Keyboard, player 1: arrow keys, fire with <kbd>Space</kbd> or <kbd>Right Shift</kbd>.</li>
         <li>Keyboard, player 2: <kbd>Numpad 8 4 6 2</kbd>, fire with <kbd>Numpad 0</kbd>.</li>
         <li>Phones and tablets: on-screen stick and fire button. Turn the phone sideways, or tap Play mode, to fill the screen.</li>
+        <li>Some games read joystick 2. Use the Joystick 1 / 2 switch next to Sound, or the Joy button in the top-right corner in play mode. When both are lit, your controls drive both joysticks.</li>
       </ul>
     </div></details>
     </section>
